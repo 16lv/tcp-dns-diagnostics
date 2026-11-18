@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import socket
 from unittest.mock import MagicMock, patch
 
@@ -8,14 +9,17 @@ import pytest
 from src.net_diag.diagnostics import (
     build_diagnostic_report,
     check_tcp_connectivity,
+    main,
     resolve_dns,
     validate_host,
 )
 
 
 def test_validate_host_accepts_valid_domains_and_ips_and_rejects_invalid() -> None:
-    assert validate_host("cardiff.ac.uk") == "cardiff.ac.uk"
+    assert validate_host("example.org") == "example.org"
+    assert validate_host("example.org.") == "example.org"
     assert validate_host("127.0.0.1") == "127.0.0.1"
+    assert validate_host("::1") == "::1"
 
     with pytest.raises(ValueError):
         validate_host("")
@@ -39,7 +43,10 @@ def test_resolve_dns_handles_success_and_gaierror() -> None:
         assert fail.status == "DNS_FAILURE"
 
 
-def test_tcp_connectivity_distinguishes_connected_timeout_and_refused() -> None:
+def test_tcp_connectivity_distinguishes_outcomes_and_rejects_boolean_ports() -> None:
+    with pytest.raises(ValueError, match="integer between 1 and 65535"):
+        check_tcp_connectivity("example.com", True)  # type: ignore[arg-type]
+
     mock_conn = MagicMock()
     with patch("socket.create_connection", return_value=mock_conn):
         ok = check_tcp_connectivity("example.com", 443)
@@ -57,7 +64,7 @@ def test_tcp_connectivity_distinguishes_connected_timeout_and_refused() -> None:
         assert refused.status == "CONNECTION_REFUSED"
 
 
-def test_build_diagnostic_report_aggregates_dns_and_tcp_checks() -> None:
+def test_build_diagnostic_report_and_dns_skip_and_cli(capsys: pytest.CaptureFixture[str]) -> None:
     fake_addrinfo = [
         (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0)),
     ]
@@ -71,7 +78,16 @@ def test_build_diagnostic_report_aggregates_dns_and_tcp_checks() -> None:
         assert [c["port"] for c in report["tcp_checks"]] == [80, 443]
         assert report["tcp_checks"][0]["status"] == "CONNECTED"
 
+        assert main(["localhost", "--ports", "443"]) == 0
+        cli_json = json.loads(capsys.readouterr().out)
+        assert cli_json["tcp_checks"][0]["port"] == 443
+
+    with patch("socket.getaddrinfo", side_effect=socket.gaierror("NXDOMAIN")):
+        skipped = build_diagnostic_report("missing.example.invalid", [80, 443])
+        assert skipped["dns"]["resolved"] is False
+        assert all(c["status"] == "SKIPPED_DNS_FAILURE" for c in skipped["tcp_checks"])
+
     with pytest.raises(ValueError, match="must contain at least one"):
         build_diagnostic_report("localhost", [])
-    with pytest.raises(ValueError, match="Invalid TCP port"):
+    with pytest.raises(ValueError, match="integer between 1 and 65535"):
         build_diagnostic_report("localhost", [70000])

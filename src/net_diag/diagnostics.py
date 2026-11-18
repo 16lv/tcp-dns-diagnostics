@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import ipaddress
+import json
 import re
 import socket
 import time
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -34,8 +37,13 @@ class TcpProbeResult:
     explanation: str
 
 
+def _validate_port(port: int) -> int:
+    if isinstance(port, bool) or not isinstance(port, int) or not (1 <= port <= 65535):
+        raise ValueError(f"Port must be an integer between 1 and 65535 (got {port!r})")
+    return port
+
+
 def validate_host(host: str) -> str:
-    # Check if it's a valid IPv4/IPv6 literal first, otherwise validate as a hostname
     cleaned = host.strip()
     if not cleaned:
         raise ValueError("Host must not be empty")
@@ -45,9 +53,10 @@ def validate_host(host: str) -> str:
     except ValueError:
         pass
 
-    if not HOSTNAME_RE.match(cleaned):
+    domain = cleaned.rstrip(".")
+    if not domain or not HOSTNAME_RE.match(domain):
         raise ValueError(f"Invalid hostname or IP address: '{host}'")
-    return cleaned
+    return domain
 
 
 def resolve_dns(host: str) -> DnsCheckResult:
@@ -83,8 +92,7 @@ def check_tcp_connectivity(
     timeout_seconds: float = 3.0,
 ) -> TcpProbeResult:
     cleaned = validate_host(host)
-    if not (1 <= port <= 65535):
-        raise ValueError(f"Port must be between 1 and 65535 (got {port})")
+    _validate_port(port)
     if timeout_seconds <= 0:
         raise ValueError("Timeout must be positive")
 
@@ -147,19 +155,17 @@ def build_diagnostic_report(
     if not ports:
         raise ValueError("ports must contain at least one TCP port")
 
-    unique_ports = list(dict.fromkeys(ports))
-    for port in unique_ports:
-        if isinstance(port, bool) or not (1 <= port <= 65535):
-            raise ValueError(f"Invalid TCP port: {port}. Expected integer in 1..65535.")
-
+    unique_ports = [_validate_port(port) for port in dict.fromkeys(ports)]
     dns_result = resolve_dns(host)
-    if dns_result.resolved:
+
+    if dns_result.resolved and dns_result.addresses:
+        connect_target = dns_result.addresses[0]
         max_workers = min(len(unique_ports), 16)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             tcp_results = list(
                 pool.map(
                     lambda p: check_tcp_connectivity(
-                        dns_result.host, p, timeout_seconds=timeout_seconds
+                        connect_target, p, timeout_seconds=timeout_seconds
                     ),
                     unique_ports,
                 )
@@ -186,3 +192,36 @@ def build_diagnostic_report(
             "than ICMP echo when firewalls filter ping traffic."
         ),
     }
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Run DNS resolution timing and concurrent TCP port checks."
+    )
+    parser.add_argument("host", help="Hostname or IPv4/IPv6 address to inspect")
+    parser.add_argument(
+        "--ports",
+        nargs="+",
+        type=int,
+        default=[80, 443],
+        help="TCP ports to check (default: 80 443)",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=3.0,
+        help="Socket timeout in seconds per port (default: 3.0)",
+    )
+    args = parser.parse_args(argv)
+
+    report = build_diagnostic_report(
+        args.host,
+        args.ports,
+        timeout_seconds=args.timeout,
+    )
+    print(json.dumps(report, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
