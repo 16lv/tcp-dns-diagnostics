@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.net_diag.diagnostics import (
+from net_diag.diagnostics import (
     build_diagnostic_report,
     check_tcp_connectivity,
     main,
@@ -91,3 +91,22 @@ def test_build_diagnostic_report_and_dns_skip_and_cli(capsys: pytest.CaptureFixt
         build_diagnostic_report("localhost", [])
     with pytest.raises(ValueError, match="integer between 1 and 65535"):
         build_diagnostic_report("localhost", [70000])
+
+    dual_stack = [
+        (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 0, 0, 0)),
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0)),
+    ]
+
+    def dual_connect(addr: tuple[str, int], timeout: float = 3.0) -> MagicMock:
+        host, _ = addr
+        if host == "::1":
+            raise ConnectionRefusedError()
+        return MagicMock()
+
+    with (
+        patch("socket.getaddrinfo", return_value=dual_stack),
+        patch("socket.create_connection", side_effect=dual_connect),
+    ):
+        report = build_diagnostic_report("localhost", [443])
+        assert report["tcp_checks"][0]["reachable"] is True
+        assert report["tcp_checks"][0]["host"] == "127.0.0.1"

@@ -159,17 +159,28 @@ def build_diagnostic_report(
     dns_result = resolve_dns(host)
 
     if dns_result.resolved and dns_result.addresses:
-        connect_target = dns_result.addresses[0]
+        def _probe_port(port: int) -> TcpProbeResult:
+            first_failure: TcpProbeResult | None = None
+            for address in dns_result.addresses:
+                attempt = check_tcp_connectivity(address, port, timeout_seconds=timeout_seconds)
+                if attempt.reachable:
+                    return attempt
+                if first_failure is None:
+                    first_failure = attempt
+            if first_failure is not None:
+                return first_failure
+            return TcpProbeResult(
+                host=dns_result.host,
+                port=port,
+                reachable=False,
+                elapsed_ms=0.0,
+                status="UNREACHABLE",
+                explanation="No resolved addresses responded to TCP connect.",
+            )
+
         max_workers = min(len(unique_ports), 16)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            tcp_results = list(
-                pool.map(
-                    lambda p: check_tcp_connectivity(
-                        connect_target, p, timeout_seconds=timeout_seconds
-                    ),
-                    unique_ports,
-                )
-            )
+            tcp_results = list(pool.map(_probe_port, unique_ports))
     else:
         tcp_results = [
             TcpProbeResult(
