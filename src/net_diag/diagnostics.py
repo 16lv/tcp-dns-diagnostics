@@ -193,11 +193,18 @@ def build_diagnostic_report(
             )
             for port in unique_ports
         ]
+    open_count = sum(1 for r in tcp_results if r.reachable)
     return {
         "generated_at": datetime.now(UTC).isoformat(),
         "target_host": dns_result.host,
         "dns": asdict(dns_result),
         "tcp_checks": [asdict(r) for r in tcp_results],
+        "summary": {
+            "total_ports": len(tcp_results),
+            "open_ports": open_count,
+            "unreachable_ports": len(tcp_results) - open_count,
+            "resolved_addresses": len(dns_result.addresses),
+        },
         "note": (
             "TCP handshake checks give a more reliable view of port reachability "
             "than ICMP echo when firewalls filter ping traffic."

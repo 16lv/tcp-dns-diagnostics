@@ -7,7 +7,7 @@ Command-line DNS lookup timer and concurrent TCP handshake tester built with **P
 - **Host and port validation**: Accepts IPv4, IPv6, and RFC 1123 domains (stripping trailing DNS root dots) while rejecting malformed hostnames and non-integer/boolean ports cleanly.
 - **Separate DNS and TCP diagnostics**: `resolve_dns()` isolates name-resolution latency (`NXDOMAIN` / resolver failures), then `build_diagnostic_report()` probes resolved addresses in parallel across ports via `ThreadPoolExecutor`.
 - **Dual-stack fallback**: When DNS returns multiple A/AAAA records, ports try each candidate IP cleanly instead of failing on the first address family.
-- **Distinct failure taxonomy**: Reports `CONNECTED`, `CONNECTION_REFUSED`, `TIMEOUT`, `SKIPPED_DNS_FAILURE`, and `UNREACHABLE` with human-readable causes.
+- **Distinct failure taxonomy & rollup**: Reports `CONNECTED`, `CONNECTION_REFUSED`, `TIMEOUT`, `SKIPPED_DNS_FAILURE`, and `UNREACHABLE` per port alongside a top-level `summary` (`total_ports`, `open_ports`, `unreachable_ports`, `resolved_addresses`).
 
 ## Technology Stack
 

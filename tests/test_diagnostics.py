@@ -74,6 +74,7 @@ def test_build_diagnostic_report_and_dns_skip_and_cli(capsys: pytest.CaptureFixt
     ):
         report = build_diagnostic_report("localhost", [80, 443, 80])
         assert report["dns"]["resolved"] is True
+        assert report["summary"]["open_ports"] == 2
         assert len(report["tcp_checks"]) == 2
         assert [c["port"] for c in report["tcp_checks"]] == [80, 443]
         assert report["tcp_checks"][0]["status"] == "CONNECTED"
