@@ -111,3 +111,19 @@ def test_build_diagnostic_report_and_dns_skip_and_cli(capsys: pytest.CaptureFixt
         report = build_diagnostic_report("localhost", [443])
         assert report["tcp_checks"][0]["reachable"] is True
         assert report["tcp_checks"][0]["host"] == "127.0.0.1"
+
+
+def test_cli_fail_on_unreachable_and_invalid_input_exit_codes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fake_addrinfo = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))]
+    with (
+        patch("socket.getaddrinfo", return_value=fake_addrinfo),
+        patch("socket.create_connection", side_effect=ConnectionRefusedError()),
+    ):
+        assert main(["localhost", "--ports", "8080", "--fail-on-unreachable"]) == 1
+        out = json.loads(capsys.readouterr().out)
+        assert out["summary"]["unreachable_ports"] == 1
+
+    assert main(["localhost", "--ports", "0"]) == 2
+    assert "error:" in capsys.readouterr().err

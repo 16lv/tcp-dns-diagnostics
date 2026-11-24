@@ -23,10 +23,10 @@ pip install -e ".[dev]"
 
 ## Usage Examples
 
-Run DNS resolution and concurrent port checks from the CLI:
+Run DNS resolution and concurrent port checks from the CLI (returning exit code `1` when `--fail-on-unreachable` sees closed ports):
 
 ```bash
-tcp-dns-diag example.com --ports 80 443 8080 --timeout 2.5
+tcp-dns-diag example.com --ports 80 443 8080 --timeout 2.5 --fail-on-unreachable
 ```
 
 Call diagnostics from Python:

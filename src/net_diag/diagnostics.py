@@ -5,6 +5,7 @@ import ipaddress
 import json
 import re
 import socket
+import sys
 import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -230,14 +231,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=3.0,
         help="Socket timeout in seconds per port (default: 3.0)",
     )
+    parser.add_argument(
+        "--fail-on-unreachable",
+        action="store_true",
+        help="Return exit code 1 if any requested port is unreachable",
+    )
     args = parser.parse_args(argv)
 
-    report = build_diagnostic_report(
-        args.host,
-        args.ports,
-        timeout_seconds=args.timeout,
-    )
+    try:
+        report = build_diagnostic_report(
+            args.host,
+            args.ports,
+            timeout_seconds=args.timeout,
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
     print(json.dumps(report, indent=2))
+    if args.fail_on_unreachable and report["summary"]["unreachable_ports"] > 0:
+        return 1
     return 0
 
 
